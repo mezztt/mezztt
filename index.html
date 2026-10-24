@@ -2578,6 +2578,8 @@
     // ============================================================
     // CONEXIONES
     // ============================================================
+    // Buzón de cotizaciones (Cloudflare Worker de Mezztt). Mientras esté vacío, la web manda las solicitudes directo al backend de cada sistema.
+    const BUZON_URL = "https://mezztt-buzon.mezzttofficial.workers.dev";   // buzón de cotizaciones de Mezztt (Cloudflare). Vacío = las solicitudes van directo al backend de cada sistema
     const VELORA_API = "http://127.0.0.1:8000";     // backend de Velora (sin cambios)
     const DEPORTIA_API = "http://127.0.0.1:8020";   // backend de Deportia
     const MIRA_API = "http://127.0.0.1:8030";       // backend de MIRA
@@ -3209,17 +3211,28 @@
         msgText = USAGE_TXT[usage] + (posTxt ? " · " + posTxt : "") + (msgText ? " · " + msgText : "");
         if (msgText) params.append("message", msgText);
 
-        const response = await fetch(product.api + "/public/quote-request?" + params.toString(), {
-          method: "POST",
-        });
-        if (!response.ok) throw new Error("No se pudo enviar");
+        let sent = false;
+        if (BUZON_URL) {   // las solicitudes van al buzón de Mezztt; cada sistema las busca con «Buscar cotizaciones»
+          try {
+            const r = await fetch(BUZON_URL + "/quote", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sistema: currentProduct.replace(/_.*$/, ""), query: params.toString() }),
+            });
+            if (r.ok) sent = true;
+            else if (r.status === 400 || r.status === 429) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || "No se pudo enviar"); }
+          } catch (e) { if (e && e.message && !/fetch|network|load failed/i.test(e.message)) throw e; }
+        }
+        if (!sent) {       // sin buzón (o buzón caído): directo al backend del sistema
+          const response = await fetch(product.api + "/public/quote-request?" + params.toString(), { method: "POST" });
+          if (!response.ok) throw new Error("No se pudo enviar");
+        }
         statusBox.className = "form-status ok";
         statusBox.textContent = "¡Gracias! Recibimos tu solicitud, te vamos a contactar pronto.";
         event.target.reset();
         setTimeout(closeModulePicker, 1800);
       } catch (error) {
         statusBox.className = "form-status error";
-        statusBox.textContent = "No se pudo enviar. Verificá que el backend esté corriendo.";
+        statusBox.textContent = (error && error.message && error.message !== "No se pudo enviar") ? error.message : "No se pudo enviar. Probá de nuevo en unos minutos.";
       } finally {
         submitBtn.disabled = false; submitBtn.textContent = "Enviar solicitud";
       }
