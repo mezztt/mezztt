@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Dominio: mezztt.site
+Sitemap: https://mezztt.site/sitemap.xml
